@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: job_agent
+      POSTGRES_PASSWORD: job_agent   # local development only
+      POSTGRES_DB: job_agent
+    ports: ["${POSTGRES_HOST_PORT:-5432}:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U job_agent"]
+      interval: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://job_agent:job_agent@db:5432/job_agent
+    depends_on:
+      db: {condition: service_healthy}
+
+  api:
+    build: .
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://job_agent:job_agent@db:5432/job_agent
+    ports: ["${API_HOST_PORT:-8000}:8000"]
+    volumes: [resumes:/app/var/resumes]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  scheduler:
+    build: .
+    command: ["python", "-m", "job_agent.scheduler"]
+    healthcheck:
+      disable: true  # no HTTP server in this process
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://job_agent:job_agent@db:5432/job_agent
+    volumes: [resumes:/app/var/resumes]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+volumes:
+  pgdata:
+  resumes:
