@@ -50,6 +50,29 @@ RESUME_PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
+_MAX_ERROR_DETAIL = 300
+
+
+def _error_detail(exc: BaseException) -> str:
+    """Short, human-readable reason for an LLM call failure.
+
+    Prefers the provider's own message (e.g. Anthropic/OpenAI ``body.error.message``)
+    over the full exception string, which can include request ids and raw JSON.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        body = getattr(current, "body", None)
+        if isinstance(body, dict):
+            error = body.get("error")
+            message = error.get("message") if isinstance(error, dict) else body.get("message")
+            if isinstance(message, str) and message:
+                return message[:_MAX_ERROR_DETAIL]
+        current = current.__cause__ or current.__context__
+    return (str(exc) or "no details")[:_MAX_ERROR_DETAIL]
+
+
 class LLMResumeExtractor:
     def __init__(self, model: BaseChatModel, *, max_chars: int = 40_000) -> None:
         self._chain: Runnable[dict[str, str], object] = (
@@ -63,7 +86,9 @@ class LLMResumeExtractor:
         except ValidationError as exc:
             raise ExtractionFailed("LLM returned a profile that failed validation") from exc
         except Exception as exc:
-            raise ExtractionFailed(f"LLM extraction failed: {type(exc).__name__}") from exc
+            raise ExtractionFailed(
+                f"LLM extraction failed: {type(exc).__name__}: {_error_detail(exc)}"
+            ) from exc
         if isinstance(result, ResumeProfile):
             return result
         if isinstance(result, dict):
