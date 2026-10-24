@@ -255,6 +255,35 @@ class TestLLMExtractor:
         with pytest.raises(ExtractionFailed):
             LLMResumeExtractor(FakeStructuredModel(response)).extract("x")  # type: ignore[arg-type]
 
+    def test_provider_error_message_included(self) -> None:
+        class ProviderBadRequest(Exception):
+            def __init__(self) -> None:
+                super().__init__("Error code: 400 - {...raw json...}")
+                self.body = {
+                    "type": "error",
+                    "error": {
+                        "type": "invalid_request_error",
+                        "message": "`temperature` is deprecated for this model.",
+                    },
+                }
+
+        class WrappedError(Exception):
+            pass
+
+        wrapped = WrappedError("wrapper")
+        wrapped.__cause__ = ProviderBadRequest()
+        with pytest.raises(ExtractionFailed) as info:
+            LLMResumeExtractor(FakeStructuredModel(wrapped)).extract("x")  # type: ignore[arg-type]
+        assert str(info.value) == (
+            "LLM extraction failed: WrappedError: `temperature` is deprecated for this model."
+        )
+
+    def test_plain_error_message_included_and_capped(self) -> None:
+        with pytest.raises(ExtractionFailed) as info:
+            LLMResumeExtractor(FakeStructuredModel(RuntimeError("z" * 1000))).extract("x")  # type: ignore[arg-type]
+        assert str(info.value).startswith("LLM extraction failed: RuntimeError: zzz")
+        assert len(str(info.value)) < 400
+
     def test_text_truncated(self) -> None:
         model = FakeStructuredModel(ResumeProfile())
         LLMResumeExtractor(model, max_chars=10).extract("x" * 100)  # type: ignore[arg-type]

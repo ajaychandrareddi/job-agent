@@ -52,8 +52,9 @@ def build_chat_model(settings: Settings) -> BaseChatModel:
         if provider is LLMProvider.ANTHROPIC:
             from langchain_anthropic import ChatAnthropic
 
+            # Current Claude models reject `temperature` with a 400, so it is never sent.
             return ChatAnthropic(
-                model_name=model, api_key=api_key, timeout=settings.llm_timeout_seconds, **common
+                model_name=model, api_key=api_key, timeout=settings.llm_timeout_seconds
             )
     except ImportError as exc:
         raise LLMConfigurationError(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
 from uuid import uuid4
 
@@ -79,6 +81,30 @@ class TestLLMFactory:
                 build_chat_model(Settings(_env_file=None, llm_provider=LLMProvider.OPENAI))  # type: ignore[call-arg]
         else:
             pytest.skip("langchain-openai is installed")
+
+    def test_anthropic_model_built_without_temperature(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Current Claude models return 400 "temperature is deprecated" if it is sent.
+        captured: dict[str, object] = {}
+
+        class FakeChatAnthropic:
+            def __init__(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+        module = types.ModuleType("langchain_anthropic")
+        module.ChatAnthropic = FakeChatAnthropic  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "langchain_anthropic", module)
+
+        settings = Settings(  # type: ignore[call-arg]
+            _env_file=None,
+            llm_provider=LLMProvider.ANTHROPIC,
+            llm_model="claude-haiku-5-5",
+            llm_temperature=0.0,
+        )
+        build_chat_model(settings)
+        assert captured["model_name"] == "claude-haiku-5-5"
+        assert "temperature" not in captured
 
 
 class TestDatabaseGuard:
